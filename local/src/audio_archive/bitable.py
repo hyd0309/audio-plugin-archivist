@@ -8,6 +8,7 @@ from filelock import FileLock
 from . import store
 from .config import save_settings
 from .feishu import Feishu, FeishuError, SyncJournal, resource_id
+from .figures import detail_parts
 from .models import FilterTags
 
 FIELDS = [
@@ -185,7 +186,8 @@ def sync_item(item,settings,client=None):
     existing=(current or {}).get('fields',{})
     if mapping.get('record_id') and not current:
         raise FeishuError('原表格记录已不存在或插件ID被修改，请核对后恢复；不会自动复制新记录')
-    incoming={'名称':record['名称'],**profile(record),'详细说明':record['详细说明'],
+    description='\n'.join(text for text, _ in detail_parts(record['详细说明']))
+    incoming={'名称':record['名称'],**profile(record),'详细说明':description,
               '插件ID':pid,'源PDF指纹':item['id']}
     for name in ('类属','适用音源','风格场景'):
         incoming[name]=normalized_options(incoming[name],fields[name])

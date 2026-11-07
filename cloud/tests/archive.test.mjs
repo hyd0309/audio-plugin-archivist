@@ -22,7 +22,9 @@ test('provider errors do not disclose returned credentials or upstream request b
 });
 function fakeFs(failStep=''){
   let row=null,created=0,summary='',detail='';const c={base:'baseToken',table:'tableToken',summary:'summaryToken'};
-  return {config:c,save:async()=>{},get count(){return created},get row(){return row},all:async()=>[],
+  const detailBlocks=[],boundImages=[];
+  return {config:c,save:async()=>{},get count(){return created},get row(){return row},all:async()=>[],detailBlocks,boundImages,
+    async upload(image,blockId){assert.match(image,/^data:image\/jpeg;base64,/);return blockId+'-token';},
     async request(method,path,body){
       if(path.includes('/records/search?'))return {items:row?[structuredClone(row)]:[]};
       if(method==='POST'&&path.includes('/records?')){row={record_id:'recTest',fields:structuredClone(body.fields)};return {record:row};}
@@ -30,12 +32,29 @@ function fakeFs(failStep=''){
       if(method==='POST'&&path==='/docx/v1/documents'){created++;if(failStep==='create')throw new Error('uncertain');return {document:{document_id:'docToken'}};}
       if(path.endsWith('/raw_content'))return {content:detail};
       if(method==='GET'&&path.endsWith('/records/recTest'))return {record:row};
+      if(method==='PATCH'&&path.includes('/documents/docToken/blocks/')){boundImages.push(body.replace_image.token);return {};}
       throw new Error('Unexpected '+method+' '+path);
-    },async append(doc,blocks){const t=JSON.stringify(blocks);if(doc==='docToken')detail+=t;else summary+=t;return {children:[]};}
+    },async append(doc,blocks){const t=JSON.stringify(blocks);if(doc==='docToken'){detail+=t;detailBlocks.push(...blocks);}else summary+=t;return {children:blocks.map((_,i)=>({block_id:'block-'+(detailBlocks.length+i)}))};}
   };
 }
 test('archive completes in Feishu and repeat returns existing without duplicate docs',async()=>{
   const fs=fakeFs(),input={record,pages:[],fingerprint:'a'.repeat(64)};const first=await syncArchive(fs,input);assert.equal(first.existing,false);assert.equal(fs.count,1);assert.equal(JSON.parse(fs.row.fields.归档进度).complete,true);assert(!('evidence'in fs.row.fields));assert.equal((await syncArchive(fs,input)).existing,true);assert.equal(fs.count,1);
+});
+test('detail images are native blocks between text and captions, with validated assets', async()=>{
+  const fs=fakeFs(), id='page-1#crop=10,20,80,30';
+  const value={...record,详细说明:record.详细说明.replace('Depth 调整深度。','Depth 调整深度。\n![深度控件]('+id+')')};
+  const input={record:value,pages:[{number:1,text:'Depth'}],fingerprint:'b'.repeat(64)};
+  await assert.rejects(syncArchive(fs,input),/正文插图缺失/);
+  assert.equal(fs.count,0);
+  input.figures=[{id,image:'data:image/jpeg;base64,AAAA'}];
+  await syncArchive(fs,input);
+  const index=fs.detailBlocks.findIndex(block=>block.block_type===27);
+  assert.match(JSON.stringify(fs.detailBlocks[index-1]),/Depth 调整深度/);
+  assert.match(JSON.stringify(fs.detailBlocks[index+1]),/深度控件/);
+  assert.equal(fs.boundImages.length,1);
+  assert(!fs.row.fields.详细说明.includes('#crop='));
+  assert((await syncArchive(fs,input)).existing);
+  assert.equal(fs.boundImages.length,1);
 });
 test('ambiguous cloud create is stopped on retry and progress lives only in Feishu',async()=>{
   const fs=fakeFs('create'),input={record,pages:[],fingerprint:'a'.repeat(64)};await assert.rejects(syncArchive(fs,input));await assert.rejects(syncArchive(fs,input),/结果不确定/);assert.equal(fs.count,1);

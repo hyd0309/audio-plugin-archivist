@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 from .config import ROOT, Settings
 from .models import Archive
+from .figures import detail_figures
 from .store import atomic_json
 
 
@@ -98,8 +99,15 @@ class VisionModel:
                     selected.append(candidate)
         # A separate visual choice compares the actual crops selected while reading all pages.
         selected = selected[:16]
-        content = [{'type':'text','text':json.dumps({'page_notes':notes,'allowed_image_ids':selected,'confirmed_links':list(dict.fromkeys(link for p in pages for link in p['links'])),'required_schema':Archive.model_json_schema()},ensure_ascii=False)}]
-        for candidate in selected:
+        figures = []
+        for note in notes:
+            for figure in note.get('figure_candidates', []):
+                image_id = figure.get('id') if isinstance(figure, dict) else None
+                if isinstance(image_id, str) and image_id in candidates and candidates[image_id].get('kind') != 'page' and image_id not in figures:
+                    figures.append(image_id)
+        figures = figures[:12]
+        content = [{'type':'text','text':json.dumps({'page_notes':notes,'allowed_image_ids':selected,'allowed_figure_ids':figures,'confirmed_links':list(dict.fromkeys(link for p in pages for link in p['links'])),'required_schema':Archive.model_json_schema()},ensure_ascii=False)}]
+        for candidate in dict.fromkeys(selected + figures):
             content.extend([{'type':'text','text':'候选界面图 ID：'+candidate},self.image(folder/candidates[candidate]['path'])])
         messages = [{'role':'system','content':system},{'role':'user','content':content}]
         for attempt in range(2):
@@ -110,6 +118,8 @@ class VisionModel:
                 validate_record(record,extraction)
                 if record.image_id and record.image_id not in selected:
                     raise ValueError('界面图必须来自最终提供的候选 ID')
+                if set(detail_figures(record.description, extraction)) - set(figures):
+                    raise ValueError('说明插图必须来自最终提供的局部图 ID')
                 return record
             except (ValueError,ModelError) as error:
                 if attempt:
@@ -118,6 +128,7 @@ class VisionModel:
 
 
 def validate_record(record: Archive, extraction):
+    detail_figures(record.description, extraction)
     if record.image_id and record.image_id not in {im['id'] for im in extraction['images']}:
         raise ValueError('界面图不是从本手册提取的候选图片')
     if any(e.page > extraction['page_count'] for e in record.evidence):

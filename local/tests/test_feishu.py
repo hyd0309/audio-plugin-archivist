@@ -60,7 +60,7 @@ def test_full_sync_native_blocks_idempotent_and_no_delete(workspace,record):
     fs=Feishu(settings(),httpx.MockTransport(handler))
     atomic_json(fs.token_path,{'client_id':'cli_test','access_token':'token','expires_at':time.time()+7200})
     folder=workspace/'item';folder.mkdir();(folder/'img.png').write_bytes(b'test image')
-    record={**record,'界面图':'img1'}
+    record={**record,'界面图':'img1','详细说明':record['详细说明']+'\n![控件示意](img1)'}
     extraction={'images':[{'id':'img1','path':'img.png'}]}
     configured=settings().model_copy(update={'feishu_summary_id':'https://workspace.feishu.cn/docx/summary1'})
     result=sync_archive(configured,record,extraction,folder,client=fs)
@@ -73,6 +73,9 @@ def test_full_sync_native_blocks_idempotent_and_no_delete(workspace,record):
     assert all(r.method!='DELETE' for r in writes)
     blocks=[json.loads(r.content) for r in writes if r.url.path.endswith('/children')]
     assert any(b['children'][0].get('image')=={} for b in blocks)
+    detail_writes=[r for r in writes if '/documents/detail1/blocks/' in r.url.path]
+    assert any(json.loads(r.content).get('replace_image')=={'token':'image-token'} for r in detail_writes if r.method=='PATCH')
+    assert any('控件示意' in str(json.loads(r.content)) for r in detail_writes if r.method=='POST')
     assert blocks[-1]['children'][0]['text']['elements'][0]['mention_doc']['token']=='detail1'
     upload=next(r for r in writes if r.url.path.endswith('upload_all'))
     assert b'parent_node' in upload.content and b'imageblock' in upload.content

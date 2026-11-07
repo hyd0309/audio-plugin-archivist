@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from './security.mjs';
+import { detailParts } from './figures.mjs';
 const tag=z.string().trim().min(1).max(80);
 export const archiveSchema=z.object({
   '名称':z.string().trim().min(1).max(200).transform(s=>s.replace(/(?:\s*[(（]\s*(?:stereo|mono|立体声|单声道)\s*(?:手册|manual)?\s*[)）])+\s*$/ig,'').trim()),
@@ -19,6 +20,11 @@ export function validateRecord(value,pages) {
   for(const heading of heads){const at=r.详细说明.indexOf('## '+heading);if(at<=last)throw new AppError('详细说明须依次包含核心功能概述、界面控件说明、操作实践指南。');last=at;}
   if(/手册依据|Manual\s*[Pp]\.?\s*\d|(?:手册|Manual)第?\s*\d+\s*页/.test(r.详细说明))throw new AppError('详细说明不应附页码索引或手册依据章节。');
   if(r.界面图&&!pages.some(p=>'page-'+p.number===r.界面图))throw new AppError('界面图必须选自当前手册页面。');
+  let parts;
+  try { parts = detailParts(r.详细说明); } catch (error) { throw new AppError(error.message); }
+  if (parts.some(part => part.kind === 'figure' && !pages.some(page => page.number === part.page))) {
+    throw new AppError('正文插图必须选自当前手册。');
+  }
   const tags=r.筛选标签;
   for(const source of tags.适用音源){if(!tags.音源依据.some(e=>e.source===source&&normalize(e.quote).length>=8&&pages.some(p=>p.number===e.page&&normalize(p.text).includes(normalize(e.quote)))))throw new AppError('适用音源缺少手册明确原句，请留空或核对原文。');}
   return r;

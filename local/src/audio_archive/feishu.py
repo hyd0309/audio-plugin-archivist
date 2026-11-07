@@ -10,6 +10,7 @@ import uuid
 import httpx
 from filelock import FileLock
 from .config import DATA, Settings
+from .figures import detail_figures, detail_parts
 from .store import atomic_json
 
 BASE = 'https://open.feishu.cn/open-apis'
@@ -190,12 +191,28 @@ def archive_fingerprint(settings,record):
                                     ensure_ascii=False,sort_keys=True).encode()).hexdigest()
 
 
+def append_image(fs, journal, doc_id, path, step):
+    empty = journal.step(f'{step}_block', lambda key:fs.append(doc_id,[{'block_type':27,'image':{}}],key))
+    block_id = empty['children'][0]['block_id']
+
+    def upload(_):
+        with path.open('rb') as stream:
+            return fs.request('POST','/drive/v1/medias/upload_all',data={
+                'file_name':path.name,'parent_type':'docx_image','parent_node':block_id,
+                'size':str(path.stat().st_size)},files={'file':(path.name,stream,'image/png')})
+
+    media = journal.step(f'{step}_upload', upload)
+    journal.step(f'{step}_bind',lambda _:fs.request('PATCH',f'/docx/v1/documents/{doc_id}/blocks/{block_id}',
+                 params={'document_revision_id':-1},json={'replace_image':{'token':media['file_token']}}))
+
+
 def sync_archive(settings,record,extraction,folder,progress=lambda _: None,client=None,previous=None):
     if not settings.feishu_ready:
         raise FeishuError('请配置飞书应用、详情文件夹、汇总文档并完成用户授权')
     fs=client or Feishu(settings)
     summary=resource_id(settings.feishu_summary_id,'docx')
     destination=resource_id(settings.feishu_folder_token,'folder')
+    figures=detail_figures(record['详细说明'],extraction)
     fingerprint=archive_fingerprint(settings,record)
     if previous and previous.get('fingerprint')==fingerprint and previous.get('detail_id'):
         fs.document(previous['detail_id'])
@@ -206,10 +223,19 @@ def sync_archive(settings,record,extraction,folder,progress=lambda _: None,clien
     progress('正在创建飞书详情文档')
     document=journal.step('create_detail',lambda _:fs.request('POST','/docx/v1/documents',json={'title':record['名称'],'folder_token':destination}))
     doc_id=document['document']['document_id']
-    blocks=markdown_blocks(record['详细说明'])
-    for start in range(0,len(blocks),40):
-        batch=blocks[start:start+40]
-        journal.step(f'detail_{start}',lambda key,batch=batch:fs.append(doc_id,batch,key))
+    offset=0
+    for text, image_id in detail_parts(record['详细说明']):
+        if image_id:
+            step=f'figure_{offset}'
+            append_image(fs,journal,doc_id,folder/figures[image_id]['path'],step)
+            journal.step(f'{step}_caption',lambda key:fs.append(doc_id,[text_block(text)],key))
+            offset+=1
+            continue
+        blocks=markdown_blocks(text)
+        for start in range(0,len(blocks),40):
+            batch=blocks[start:start+40]
+            journal.step(f'detail_{offset+start}',lambda key,batch=batch:fs.append(doc_id,batch,key))
+        offset+=len(blocks)
     progress('正在追加汇总条目和界面图')
     summary_blocks=[text_block(record['名称'],'heading2'),text_block('类属：'+' / '.join(record['类属'])),text_block('风格场景：'+' / '.join(record['风格场景']))]
     if record['官网链接']:
@@ -219,14 +245,7 @@ def sync_archive(settings,record,extraction,folder,progress=lambda _: None,clien
     journal.step('summary_fields',lambda key:fs.append(summary,summary_blocks,key))
     if record.get('界面图'):
         candidate=next(im for im in extraction['images'] if im['id']==record['界面图'])
-        path=folder/candidate['path']
-        empty=journal.step('image_block',lambda key:fs.append(summary,[{'block_type':27,'image':{}}],key))
-        block_id=empty['children'][0]['block_id']
-        def upload(_):
-            with path.open('rb') as stream:
-                return fs.request('POST','/drive/v1/medias/upload_all',data={'file_name':path.name,'parent_type':'docx_image','parent_node':block_id,'size':str(path.stat().st_size)},files={'file':(path.name,stream,'image/png')})
-        media=journal.step('image_upload',upload)
-        journal.step('image_bind',lambda _:fs.request('PATCH',f'/docx/v1/documents/{summary}/blocks/{block_id}',params={'document_revision_id':-1},json={'replace_image':{'token':media['file_token']}}))
+        append_image(fs,journal,summary,folder/candidate['path'],'image')
     else:
         journal.step('missing_image',lambda key:fs.append(summary,[text_block('界面图：手册未提供可用图片')],key))
     reference=journal.step('detail_reference',lambda key:fs.append(summary,[reference_block(doc_id,record['名称'],settings.feishu_reference_mode)],key))

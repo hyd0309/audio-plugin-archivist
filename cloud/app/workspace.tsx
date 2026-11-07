@@ -1,10 +1,31 @@
 'use client';
 import { useState,useEffect,useRef } from 'react';
 import { APP_PATH } from '../lib/paths';
+import { detailParts } from '../lib/figures.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 type Page={number:number;text:string;links:string[];image:string};
 type RecordData={'名称':string;'类属':string[];'风格场景':string[];'详细说明':string;'官网链接':string;'界面图':string|null;'筛选标签':{'厂商':string;'适用音源':string[];'音源依据':unknown[]};evidence:unknown[];caveats:string[]};
 const empty={provider:'qwen',model:'',apiKey:'',appId:'',appSecret:'',folder:'',summary:'',base:'',table:''};
+async function renderDetailFigures(markdown:string, pages:Page[]) {
+  return Promise.all(detailParts(markdown).flatMap(part => {
+    if (part.kind !== 'figure' || !part.crop || !part.id) return [];
+    const source = pages.find(page => page.number === part.page);
+    if (!source) throw new Error('正文插图不在当前手册内。');
+    const {id,caption,crop} = part;
+    return [(async () => {
+      const img = new Image();
+      img.src = source.image;
+      await img.decode();
+      const [left, top, width, height] = crop.map(value => value / 100);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * width));
+      canvas.height = Math.max(1, Math.round(img.height * height));
+      canvas.getContext('2d')!.drawImage(img, img.width * left, img.height * top,
+        img.width * width, img.height * height, 0, 0, canvas.width, canvas.height);
+      return {id, caption, image:canvas.toDataURL('image/jpeg', .85)};
+    })()];
+  }));
+}
 async function api(path:string,body?:unknown,method=body?'POST':'GET'):Promise<any>{
   const response=await fetch(APP_PATH+'/api/'+path,{method,headers:method==='GET'?{}:{'Content-Type':'application/json','X-Audio-Archive':'1'},body:body?JSON.stringify(body):undefined});
   const value:any=await response.json();if(!response.ok)throw new Error(value.error||'操作失败。');return value;
@@ -13,11 +34,23 @@ export default function Workspace(){
   const [tab,setTab]=useState('settings'),[settings,setSettings]=useState(empty),[status,setStatus]=useState({hasApiKey:false,hasAppSecret:false,authorized:false}),[callback,setCallback]=useState('');
   const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState(''),[file,setFile]=useState<File|null>(null),[pages,setPages]=useState<Page[]>([]),[fingerprint,setFingerprint]=useState('');
   const [record,setRecord]=useState<RecordData|null>(null),[imagePage,setImagePage]=useState(''),[crop,setCrop]=useState([0,0,100,100]),[image,setImage]=useState(''),[result,setResult]=useState<{detailUrl?:string;summaryUrl:string;tableUrl:string;existing?:boolean}|null>(null);
+  const [figures,setFigures]=useState<Awaited<ReturnType<typeof renderDetailFigures>>>([]);
+  const [figureError,setFigureError]=useState('');
+  const description=record?.详细说明||'';
   const [query,setQuery]=useState(''),[answer,setAnswer]=useState(''),[sources,setSources]=useState<{name:string;url:string}[]>([]);const cancel=useRef(false);
   const update=(key:string,value:string)=>setSettings(s=>({...s,[key]:value}));
   async function load(){const v=await api('settings');setStatus(v);setSettings({...empty,...Object.fromEntries(Object.keys(empty).filter(k=>k!=='apiKey'&&k!=='appSecret').map(k=>[k,v[k]||empty[k as keyof typeof empty]]))});}
   useEffect(()=>{setCallback(location.origin+APP_PATH+'/api/feishu/callback');load().catch(e=>setError(e.message));if(location.search.includes('authorized=1'))setMessage('飞书授权完成，可以建立归档位置。');},[]);
   useEffect(()=>{const protect=(e:BeforeUnloadEvent)=>{if(record||busy){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',protect);return()=>window.removeEventListener('beforeunload',protect);},[record,busy]);
+  useEffect(()=>{
+    let active=true;
+    renderDetailFigures(description,pages).then(value=>{
+      if(active){setFigures(value);setFigureError('');}
+    }).catch(error=>{
+      if(active){setFigures([]);setFigureError(error.message);}
+    });
+    return ()=>{active=false;};
+  },[description,pages]);
   useEffect(()=>{let active=true;const p=pages.find(p=>'page-'+p.number===imagePage);if(!p){setImage('');return;}const img=new Image();img.onload=()=>{if(!active)return;const [x,y,w,h]=crop;const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*w/100));c.height=Math.max(1,Math.round(img.height*h/100));c.getContext('2d')!.drawImage(img,img.width*x/100,img.height*y/100,c.width,c.height,0,0,c.width,c.height);setImage(c.toDataURL('image/jpeg',.85));};img.src=p.image;return()=>{active=false};},[imagePage,pages,crop]);
   async function run(fn:()=>Promise<void>){if(busy)return;setBusy(true);setError('');setMessage('');try{await fn();}catch(e){setError(e instanceof Error?e.message:'操作失败，请稍后重试。');}finally{setBusy(false);}}
   async function readManual(){
@@ -30,6 +63,7 @@ export default function Workspace(){
     try{
       if(pdf.numPages>80)throw new Error('当前支持最多 80 页的手册，请先拆分 PDF。');
       const all:Page[]=[];const notes:unknown[]=[];const candidates=new Set<string>();
+      const figurePages=new Set<string>();
       for(let n=1;n<=pdf.numPages;n++){
         if(cancel.current)throw new Error('已停止后续请求；已发出的模型请求可能计费。');
         setMessage('阅读 '+n+' / '+pdf.numPages+' 页；每 4 页调用一次视觉模型。');
@@ -38,10 +72,20 @@ export default function Workspace(){
         await p.render({canvas,viewport}).promise;
         const text=(await p.getTextContent()).items.map(v=>'str'in v?v.str:'').join(' ');const annotations=await p.getAnnotations();
         all.push({number:n,text,links:annotations.filter(a=>a.url).map(a=>a.url),image:canvas.toDataURL('image/jpeg',.8)});canvas.width=canvas.height=0;p.cleanup();
-        if(n%4===0||n===pdf.numPages){const batch=all.slice(n-(n%4||4),n);const {note}=await api('analyze',{phase:'batch',pages:batch});notes.push(note);for(const id of note.interface_candidates||[])if(typeof id==='string')candidates.add(id);}
+        if(n%4===0||n===pdf.numPages){
+          const batch=all.slice(n-(n%4||4),n);
+          const {note}=await api('analyze',{phase:'batch',pages:batch});
+          notes.push(note);
+          for(const page of batch){
+            const id='page-'+page.number;
+            if(Array.isArray(note.interface_candidates)&&note.interface_candidates.includes(id))candidates.add(id);
+            if(Array.isArray(note.figure_candidates)&&note.figure_candidates.some((figure: {id?:string}|null)=>figure?.id===id))figurePages.add(id);
+          }
+        }
       }
       setPages(all);setMessage('全部页面已阅读，正在生成三段式详细说明…');
-      const chosen=all.filter(p=>candidates.has('page-'+p.number)).slice(0,6);
+      const selected = new Set([...Array.from(candidates).slice(0,1), ...figurePages, ...candidates].slice(0,6));
+      const chosen=all.filter(p=>selected.has('page-'+p.number));
       const response=await api('analyze',{phase:'final',notes,pages:all.map(({image,...p})=>p),candidates:chosen.map(p=>({id:'page-'+p.number,image:p.image}))});
       setRecord(response.record);setImagePage(response.record.界面图||'');setCrop([0,0,100,100]);setMessage('请核对内容和界面图，再归档到飞书。');
     }finally{await task.destroy();}
@@ -51,7 +95,7 @@ export default function Workspace(){
     {message&&<p className="notice" role="status">{message}</p>}{error&&<p className="error" role="alert">{error}</p>}
     {tab==='settings'&&<div id="settings"><div className="panel-heading"><h2>连接你自己的服务</h2><a href="#guide">查看完整配置手册 ↓</a></div><form onSubmit={e=>{e.preventDefault();run(async()=>{const v=await api('settings',settings,'PUT');setStatus(v);setSettings(s=>({...s,apiKey:'',appSecret:''}));setMessage('配置已加密保存。');})}}><fieldset disabled={busy}><div className="form-grid"><label>模型服务商<select value={settings.provider} onChange={e=>update('provider',e.target.value)}><option value="qwen">阿里云百炼（中国内地）</option><option value="openai">OpenAI</option><option value="siliconflow">硅基流动</option></select></label>{field('model','视觉模型 ID','复制服务商控制台中的完整模型 ID')}{field('apiKey','模型 API Key',status.hasApiKey?'已保存，留空保留':'从服务商的 API 密钥页面创建',true)}<div className="field-help">选择支持图像输入和 JSON 输出的模型。调用费用由你的模型账户承担。</div>{field('appId','飞书 App ID','cli_…')}{field('appSecret','飞书 App Secret',status.hasAppSecret?'已保存，留空保留':'飞书开发者后台 → 凭证与基础信息',true)}</div><div className="callback"><span>飞书重定向 URL</span><code>{callback||'加载中…'}</code><button type="button" onClick={()=>navigator.clipboard.writeText(callback).then(()=>setMessage('回调地址已复制。')).catch(()=>setError('无法自动复制，请手动选择地址。'))}>复制地址</button></div><details><summary>已有飞书位置／可选文件夹</summary><div className="form-grid">{field('folder','详情文件夹（可选）','飞书 /folder/ 链接或 folder token')}{field('summary','汇总文档（留空自动创建）','飞书 /docx/ 链接或文档 ID')}{field('base','多维表格 App Token','/base/ 后的标识或完整表格链接')}{field('table','Table ID','tbl… 或带 ?table= 的链接')}</div></details><div className="actions"><button className="primary" type="submit">保存配置</button><span className="status-dot">{status.authorized?'飞书已授权':'飞书尚未授权'}</span></div></fieldset></form><div className="actions"><button disabled={busy||!status.hasAppSecret} onClick={()=>run(async()=>{const v=await api('feishu/authorize',{});location.assign(v.url);})}>用飞书账号授权 ↗</button><button disabled={busy||!status.authorized} onClick={()=>run(async()=>{const v=await api('provision',{});setResult(v);await load();setMessage('飞书归档位置已建立并检查通过。');})}>建立／检查飞书归档位置</button></div>{settings.summary&&<div className="actions"><a href={'https://www.feishu.cn/docx/'+settings.summary} target="_blank" rel="noreferrer">打开汇总文档 ↗</a>{settings.base&&<a href={'https://www.feishu.cn/base/'+settings.base+'?table='+settings.table} target="_blank" rel="noreferrer">打开多维表格 ↗</a>}</div>}<details className="clear"><summary>清除本站配置</summary><p>删除本站加密保存的模型密钥、飞书配置与授权令牌。保留你在飞书中的文件。要彻底撤销授权，请同时在飞书中撤回应用授权。</p><button disabled={busy} onClick={()=>run(async()=>{if(!confirm('清除本站保存的配置和令牌？飞书文件不会被删除。'))return;await api('settings',undefined,'DELETE');await load();setMessage('本站配置已清除。');})}>确认清除配置</button></details></div>}
     {tab==='archive'&&<div><div className="panel-heading"><h2>从一份 Manual 开始</h2><span>PDF ≤ 25 MB / 80 页</span></div><label className="upload">选择效果器手册<input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={e=>setFile(e.target.files?.[0]||null)}/><small>文字和页面图会发送给你选择的模型。原始 PDF 不上传保存。</small></label><div className="actions"><button className="primary" disabled={busy||!file||!status.hasApiKey} onClick={()=>run(readManual)}>读取并分析手册</button>{busy&&<button onClick={()=>{cancel.current=true;setMessage('将在当前请求结束后停止。');}}>停止后续请求</button>}</div>{!status.hasApiKey&&<p>请先在连接配置中保存自己的模型 API。</p>}
-    {record&&<div className="review"><h2>核对本次归档</h2><div className="form-grid"><label>插件名称<input disabled={busy} value={record.名称} onChange={e=>setRecord({...record,名称:e.target.value})}/></label><label>官网链接<input disabled={busy} value={record.官网链接} onChange={e=>setRecord({...record,官网链接:e.target.value})}/></label>{(['类属','风格场景'] as const).map(key=><label key={key}>{key}（以逗号分隔）<input disabled={busy} value={record[key].join('，')} onChange={e=>setRecord({...record,[key]:e.target.value.split(/[,，]/).filter(Boolean)})}/></label>)}</div><p className="note">适用音源：{record.筛选标签.适用音源.join('、')||'留空，手册未明确说明'}。仅使用手册原句核验通过的音源。</p><label>详细说明<textarea disabled={busy} rows={22} value={record.详细说明} onChange={e=>setRecord({...record,详细说明:e.target.value})}/></label><div className="image-review"><div><label>界面图来源<select disabled={busy} value={imagePage} onChange={e=>{setImagePage(e.target.value);setCrop([0,0,100,100]);}}><option value="">无可用界面图</option>{pages.map(p=><option key={p.number} value={'page-'+p.number}>第 {p.number} 页</option>)}</select></label><p>选择含完整插件界面的页面，按百分比裁剪掉手册文字。该页码仅用于当前选图，不写入详细说明。</p>{imagePage&&<div className="crop">{['左侧 %','顶部 %','宽度 %','高度 %'].map((label,i)=><label key={label}>{label}<input disabled={busy} type="number" min={i<2?0:1} max="100" value={crop[i]} onChange={e=>{const next=[...crop];next[i]=Math.max(i<2?0:1,Math.min(100,Number(e.target.value)));next[2]=Math.min(next[2],100-next[0]);next[3]=Math.min(next[3],100-next[1]);setCrop(next);}}/></label>)}</div>}</div>{image&&<img src={image} alt="将写入飞书的界面图预览"/>}</div><div className="actions"><button className="primary" disabled={busy||!status.authorized||!settings.table} onClick={()=>run(async()=>{setMessage('正在写入飞书文档与表格，请保持页面打开…');const v=await api('archive',{record:{...record,界面图:imagePage||null},pages:pages.map(({image,...p})=>p),fingerprint,image});setResult(v);setRecord(null);setPages([]);setMessage(v.existing?'飞书中已存在该插件，已返回原记录。':'已归档到你的飞书；本站没有保存这份插件档案。');})}>归档到飞书 ↗</button><button disabled={busy} onClick={()=>{setRecord(null);setPages([]);setImage('');}}>放弃本次分析</button></div></div>}{result&&<div className="result-links">{result.detailUrl&&<a href={result.detailUrl} target="_blank" rel="noreferrer">详细说明 ↗</a>}<a href={result.summaryUrl} target="_blank" rel="noreferrer">汇总文档 ↗</a><a href={result.tableUrl} target="_blank" rel="noreferrer">多维表格 ↗</a></div>}</div>}
+    {record&&<div className="review"><h2>核对本次归档</h2><div className="form-grid"><label>插件名称<input disabled={busy} value={record.名称} onChange={e=>setRecord({...record,名称:e.target.value})}/></label><label>官网链接<input disabled={busy} value={record.官网链接} onChange={e=>setRecord({...record,官网链接:e.target.value})}/></label>{(['类属','风格场景'] as const).map(key=><label key={key}>{key}（以逗号分隔）<input disabled={busy} value={record[key].join('，')} onChange={e=>setRecord({...record,[key]:e.target.value.split(/[,，]/).filter(Boolean)})}/></label>)}</div><p className="note">适用音源：{record.筛选标签.适用音源.join('、')||'留空，手册未明确说明'}。仅使用手册原句核验通过的音源。</p><label>详细说明<textarea disabled={busy} rows={22} value={record.详细说明} onChange={e=>setRecord({...record,详细说明:e.target.value})}/></label>{figures.length>0&&<div className="examples"><h3>正文插图预览</h3><p>各图按正文标记的位置写入飞书。可删除对应的插图标记来移除该图。</p>{figures.map(figure=><figure key={figure.id}><img style={{maxWidth:'100%'}} src={figure.image} alt={figure.caption}/><figcaption>{figure.caption}</figcaption></figure>)}</div>}{figureError&&<p className="error">{figureError}</p>}<div className="image-review"><div><label>界面图来源<select disabled={busy} value={imagePage} onChange={e=>{setImagePage(e.target.value);setCrop([0,0,100,100]);}}><option value="">无可用界面图</option>{pages.map(p=><option key={p.number} value={'page-'+p.number}>第 {p.number} 页</option>)}</select></label><p>选择含完整插件界面的页面，按百分比裁剪掉手册文字。该页码仅用于当前选图，不写入详细说明。</p>{imagePage&&<div className="crop">{['左侧 %','顶部 %','宽度 %','高度 %'].map((label,i)=><label key={label}>{label}<input disabled={busy} type="number" min={i<2?0:1} max="100" value={crop[i]} onChange={e=>{const next=[...crop];next[i]=Math.max(i<2?0:1,Math.min(100,Number(e.target.value)));next[2]=Math.min(next[2],100-next[0]);next[3]=Math.min(next[3],100-next[1]);setCrop(next);}}/></label>)}</div>}</div>{image&&<img src={image} alt="将写入飞书的界面图预览"/>}</div><div className="actions"><button className="primary" disabled={busy||!status.authorized||!settings.table||!!figureError} onClick={()=>run(async()=>{setMessage('正在写入飞书文档与表格，请保持页面打开…');const v=await api('archive',{record:{...record,界面图:imagePage||null},pages:pages.map(({image,...p})=>p),fingerprint,image,figures:await renderDetailFigures(record.详细说明,pages)});setResult(v);setRecord(null);setPages([]);setMessage(v.existing?'飞书中已存在该插件，已返回原记录。':'已归档到你的飞书；本站没有保存这份插件档案。');})}>归档到飞书 ↗</button><button disabled={busy} onClick={()=>{setRecord(null);setPages([]);setImage('');}}>放弃本次分析</button></div></div>}{result&&<div className="result-links">{result.detailUrl&&<a href={result.detailUrl} target="_blank" rel="noreferrer">详细说明 ↗</a>}<a href={result.summaryUrl} target="_blank" rel="noreferrer">汇总文档 ↗</a><a href={result.tableUrl} target="_blank" rel="noreferrer">多维表格 ↗</a></div>}</div>}
     {tab==='choose'&&<div><div className="panel-heading"><h2>这次想要什么声音？</h2><span>从你的飞书中查找</span></div><p>描述音源、目标听感、风格与限制。系统当次读取飞书资料，不保存对话或检索副本。</p><label>选用需求<textarea rows={5} maxLength={3000} value={query} onChange={e=>setQuery(e.target.value)} placeholder="例如：想让一轨偏薄的合成器更宽、更有流动感，但不希望糊掉瞬态。我已有的插件里可以选什么？"/></label><div className="actions"><button className="primary" disabled={busy||!query.trim()||!status.authorized||!status.hasApiKey} onClick={()=>run(async()=>{setMessage('正在读取飞书并筛选相关资料…');setAnswer('');setSources([]);const v=await api('recommend',{query});setAnswer(v.answer);setSources(v.sources);setMessage('本次从 '+v.total+' 条记录中选取 '+v.selected+' 份详情作为参考；结果只显示在当前页面。');})}>从我的飞书寻找建议 ↗</button></div>{answer&&<div className="answer"><h3>本次选用建议</h3><div className="answer-text">{answer}</div><h4>本次参考资料</h4><div className="result-links">{sources.map(s=><a key={s.url} href={s.url} target="_blank" rel="noreferrer">{s.name} ↗</a>)}</div><button onClick={()=>{setAnswer('');setSources([]);setQuery('');setMessage('');}}>清空本次对话</button></div>}</div>}
   </section>;
 }
