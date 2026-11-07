@@ -1,0 +1,11 @@
+**/data/
+**/.env*
+**/.dev.vars*
+**/node_modules/
+**/__pycache__/
+**/*.egg-info/
+**/.pytest_cache/
+**/.sites-runtime/
+**/.wrangler/
+**/dist/
+**/*.log

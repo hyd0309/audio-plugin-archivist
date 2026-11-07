@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>效果器档案室 · 本地工作台</title><link rel="stylesheet" href="/assets/style.css"><script defer src="/assets/app.js"></script></head>
+<body>
+<aside class="sidebar">
+  <a class="brand" href="#library"><span class="brand-mark">≋</span><span>效果器档案室<small>THE PLUGIN ARCHIVE</small></span></a>
+  <span class="nav-label">你的制作工具箱</span>
+  <nav aria-label="主要功能"><a href="#library" data-nav="library"><span>▤</span> 插件档案 <b id="nav-count">0</b></a><a href="#assistant" data-nav="assistant"><span>⌁</span> 选用助手</a><a href="#settings" data-nav="settings"><span>⚙</span> 连接与设置</a></nav>
+  <div class="side-note"><div class="signal"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><p>让每一个收藏，<br>都有被听见的机会。</p><small>本地档案 · 随时找回灵感</small></div>
+  <div class="local"><span class="dot"></span> 本机工作台 <span>LOCAL</span></div>
+</aside>
+<main>
+ <header class="topbar"><span id="breadcrumb">工作台 / 插件档案</span><span class="status-pill" id="connection-status">正在连接…</span></header>
+ <section id="library-view" class="view">
+  <div class="page-heading"><div><p class="eyebrow">YOUR SOUND, ORGANIZED</p><h1>从收藏，到创作。</h1><p class="subtitle">读懂手册，留住特点。在需要的时候，找到对的效果器。</p></div><div class="archive-meter"><b id="archive-total">00</b><span>个插件已归档</span></div></div>
+  <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传效果器 PDF 手册"><div class="upload-symbol">＋</div><div><h2>把效果器手册放在这里</h2><p>拖入 Manual.pdf，或点击选择文件 <span>PDF · 最大 100 MB · 支持多文件</span></p></div><span class="upload-arrow">↗</span><input type="file" id="pdf-input" accept="application/pdf,.pdf" multiple hidden></div>
+  <div class="workflow-strip"><span><b>01</b> 读取手册</span><i>→</i><span><b>02</b> 理解与归档</span><i>→</i><span><b>03</b> 同步至飞书</span><a href="#settings">配置连接 ↗</a></div>
+  <section id="cloud-overview" class="cloud-overview" aria-label="飞书归档示意"></section>
+  <div class="section-title"><h2>我的插件 <span id="list-count"></span></h2><label class="search-field"><span>⌕</span><input id="search" type="search" placeholder="搜索名称、类别或使用场景" aria-label="搜索插件"></label></div>
+  <div id="filters" class="filters"><button class="active" data-category="">全部</button></div>
+  <div id="archive-grid" class="archive-grid"></div>
+  <div id="empty-library" class="empty" hidden><span>▤</span><h3>你的第一份插件档案，从一本手册开始。</h3><p>界面图、名称、类属、风格场景、官网和详细说明，集中收藏。</p></div>
+ </section>
+ <section id="assistant-view" class="view" hidden>
+  <p class="eyebrow">FIND THE RIGHT EFFECT</p><h1>这次，想要什么声音？</h1><p class="subtitle">描述音源与目标听感，从已有收藏里寻找适合的工具。</p>
+  <div class="assistant-layout"><div class="chat-panel"><div id="chat-history" class="chat-history" aria-live="polite"><div class="message assistant"><b>选用助手</b><p>告诉我你正在处理什么音源，以及想改变哪里。也可以直接上传手册，把新插件加入档案。</p></div></div><div class="suggestions"><button data-question="想让干净电吉他更宽、更有复古合唱感，有什么已收藏插件适合？">干净电吉他的复古合唱</button><button data-question="想让合成器铺底有缓慢的运动感，收藏里有什么可以用？">让合成器铺底动起来</button></div><form id="chat-form"><textarea id="chat-input" rows="3" placeholder="例如：这段合成器太单薄，想要更宽但不晕的空间感……" aria-label="效果器选用需求" required></textarea><div><button type="button" class="quiet" id="chat-attach">＋ 上传手册</button><button class="primary" id="chat-send" type="submit">寻找合适的效果器 ↗</button></div></form></div><aside class="assistant-aside"><span class="eyebrow">怎么描述更准确</span><h3>一个声音，<br>三个线索。</h3><ol><li><b>音源</b><p>人声、电吉他、鼓组，还是合成器？</p></li><li><b>听感</b><p>更厚、更宽、更远，还是更有运动感？</p></li><li><b>限制</b><p>保留瞬态、兼容单声道，或者避免明显失真？</p></li></ol><p id="chat-mode-note" class="muted"></p></aside></div>
+ </section>
+ <section id="detail-view" class="view" hidden><a href="#library" class="back-link">← 返回插件档案</a><div id="detail-content"></div><section id="cloud-detail" class="cloud-overview" aria-label="当前插件的飞书归档示意"></section></section>
+ <section id="settings-view" class="view" hidden>
+  <p class="eyebrow">MAKE IT YOURS</p><h1>连接与设置</h1><p class="subtitle">先使用本地档案，准备好后再接入模型和飞书。</p>
+  <form id="settings-form">
+   <div class="settings-card"><span class="section-number">01</span><div><h2>视觉理解模型</h2><p>暂时没有 API？上传后下载分析包，交给当前对话处理，再导入 JSON 结果。</p><div class="form-grid"><label>接口地址<input name="llm_base_url" placeholder="https://你的服务地址/v1" type="url"></label><label>视觉模型名称<input name="llm_model" placeholder="填入服务商提供的模型 ID"></label><label>API Key<input name="llm_api_key" type="password" autocomplete="new-password" placeholder="留空保留已有密钥"></label><label>每批阅读页数<input name="pages_per_batch" type="number" min="1" max="10" value="4"></label></div><p class="field-help">支持兼容 Chat Completions 的图像与 JSON 接口。本机 Ollama 可填 http://localhost:11434/v1。手册内容只发送到你配置的服务。</p></div></div>
+   <div class="settings-card"><span class="section-number">02</span><div><h2>飞书归档</h2><p>详情写入指定文件夹，摘要与界面图追加到汇总文档。</p><div class="form-grid"><label>App ID<input name="feishu_app_id" placeholder="cli_…"></label><label>App Secret<input name="feishu_app_secret" type="password" autocomplete="new-password" placeholder="留空保留已有密钥"></label><label>详情文件夹<input name="feishu_folder_token" placeholder="飞书云空间文件夹链接或 token"></label><label>汇总文档<input name="feishu_summary_id" placeholder="飞书 /docx/ 链接或文档 ID"></label><label>授权回调地址<input name="feishu_redirect_uri" type="url"></label><label>详情引用形式<select name="feishu_reference_mode"><option value="mention">原生云文档引用</option><option value="preview">文档预览块（需租户接口支持）</option></select></label></div><label class="checkbox"><input name="auto_sync" type="checkbox"> 完成模型分析后自动同步飞书</label><div class="actions"><button type="button" id="authorize-feishu">用飞书账号授权 ↗</button><button type="button" id="check-feishu">检查连接</button><button type="button" id="import-summary">导入汇总知识</button></div><p class="field-help" id="feishu-status">尚未授权</p></div></div>
+   <div class="settings-card"><span class="section-number">↗</span><div><h2>多维表格输出</h2><p>一行一个插件，类属与风格场景支持多选。适用音源可留空，仅填写手册明确说明的项目。重复同步更新原记录，保留个人备注和手工分类。</p><div class="actions"><button type="button" id="authorize-bitable">授权多维表格 ↗</button><button type="button" id="setup-bitable">创建 / 检查插件表格</button><a id="open-bitable" class="file-button" target="_blank" rel="noopener noreferrer" hidden>打开多维表格 ↗</a></div><p id="bitable-status" class="field-help"></p><label class="checkbox"><input name="bitable_auto_sync" type="checkbox"> 完成模型分析或导入结果后，自动输出到多维表格</label><p class="field-help">应用需开通用户身份权限 bitable:app 并发布生效，再点击授权。表格将建在上面设置的详情文件夹。</p></div></div>
+   <details class="setup-help"><summary>飞书提示“当前应用权限不足”？</summary><p>进入飞书开发者后台 → 权限管理 → 开通权限，选择“用户身份权限（user_access_token）”，开通 docx:document、drive:drive、offline_access；使用多维表格还需 bitable:app。</p><p>发布权限变更或完成审批，再重新发起授权。重定向 URL 填写 <code>http://127.0.0.1:8765/api/feishu/callback</code>。</p><a href="https://open.feishu.cn/app" target="_blank" rel="noopener noreferrer">打开飞书开发者后台 ↗</a></details>
+   <div class="settings-card"><span class="section-number">03</span><div><h2>基础知识</h2><p>可导入音频技术解释、风格场景词汇等 UTF-8 文本资料。档案会自动参与选用检索。</p><label class="file-button">导入 Markdown / TXT<input type="file" id="knowledge-input" accept=".md,.txt" hidden></label><p class="field-help">飞书汇总知识是导入时的快照；有更新时可重新导入。</p></div></div>
+   <div class="save-bar"><span>密钥仅保存于本机，不回传到页面。</span><button class="primary" type="submit">保存设置</button></div>
+  </form>
+ </section>
+ <footer>效果器档案室 <span>MANUALS INTO MUSICAL IDEAS.</span></footer>
+</main>
+<div id="toast" class="toast" role="status" hidden></div>
+<dialog id="edit-dialog"><form id="record-form"><div class="dialog-heading"><h2>导入 / 修订分析结果</h2><button type="button" id="close-editor" aria-label="关闭">×</button></div><p>粘贴当前对话输出的完整 JSON，或选择结果文件。保存时会校验字段、图片和页码。</p><label class="file-button">选择 JSON 文件<input type="file" id="json-input" accept=".json" hidden></label><textarea id="record-json" rows="20" spellcheck="false" aria-label="归档 JSON" required></textarea><div class="actions"><button class="primary" type="submit">保存到本地档案</button></div></form></dialog>
+</body></html>
