@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  basePath: '/ai/audio-archive',
+  basePath: '/plugin-archive',
 };
 
 export default nextConfig;

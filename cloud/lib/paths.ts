@@ -1,1 +1,1 @@
-export const APP_PATH='/ai/audio-archive';
+export const APP_PATH='/plugin-archive';

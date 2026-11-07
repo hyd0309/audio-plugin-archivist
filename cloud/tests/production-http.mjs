@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {sha} from '../lib/security.mjs';
 import {signEnvelope} from '../lib/gateway.mjs';
 const secret=Object.fromEntries(fs.readFileSync('.dev.vars','utf8').trim().split(/\r?\n/).map(l=>[l.slice(0,l.indexOf('=')),l.slice(l.indexOf('=')+1)]));
-const origin='http://127.0.0.1:5176',target='http://127.0.0.1:5177',prefix='/ai/audio-archive';
+const origin='http://127.0.0.1:5176',target='http://127.0.0.1:5177',prefix='/plugin-archive';
 async function request(user,path,method='GET',data,requestOrigin=origin){
   const body=data?JSON.stringify(data):undefined;
   const raw=JSON.stringify({at:Date.now(),url:origin+prefix+path,method,hash:await sha(body||''),user,origin:requestOrigin});

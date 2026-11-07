@@ -1,7 +1,7 @@
 // The portfolio Worker signs server-to-server requests after Sites authenticates
 // the visitor. Browser-supplied identity/signature headers are never forwarded.
 import { sha, b64, unb64 } from './security.mjs';
-export const PREFIX='/ai/audio-archive';
+export const PREFIX='/plugin-archive';
 async function key(secret,usage){if(!secret||unb64(secret).length!==32)throw new Error('gateway_unconfigured');return crypto.subtle.importKey('raw',unb64(secret),{name:'HMAC',hash:'SHA-256'},false,[usage]);}
 export async function signEnvelope(secret,envelope){return b64(new Uint8Array(await crypto.subtle.sign('HMAC',await key(secret,'sign'),new TextEncoder().encode(envelope))));}
 export async function verifyGateway(request,secret,origin){

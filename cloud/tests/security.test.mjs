@@ -20,12 +20,12 @@ test('CSRF and size boundary reject before side effects',async()=>{
   await assert.rejects(jsonBody(new Request('https://app.test/api',{...good,body:'0123456789'}),5));assert.deepEqual(await jsonBody(new Request('https://app.test/api',good)),{});
 });
 test('gateway signature binds identity, origin, body, method and time',async()=>{
-  const body='{"x":1}',path='/ai/audio-archive/api/settings';const env={at:Date.now(),url:'https://portfolio.test'+path,method:'POST',hash:await sha(body),user:'alice',origin:'https://portfolio.test'};
+  const body='{"x":1}',path='/plugin-archive/api/settings';const env={at:Date.now(),url:'https://portfolio.test'+path,method:'POST',hash:await sha(body),user:'alice',origin:'https://portfolio.test'};
   const raw=JSON.stringify(env),signature=await signEnvelope(key,raw);const request=(b=body,rawValue=raw)=>new Request('https://service.test'+path,{method:'POST',headers:{'x-aa-envelope':rawValue,'x-aa-signature':signature},body:b});
   assert.equal((await verifyGateway(request(),key,'https://portfolio.test')).user,'alice');assert.equal(await verifyGateway(request('tampered'),key,'https://portfolio.test'),null);assert.equal(await verifyGateway(request(body,raw.replace('alice','bob')),key,'https://portfolio.test'),null);assert.equal(await verifyGateway(request(),key,'https://evil.test'),null);
   const stale=JSON.stringify({...env,at:Date.now()-60000});assert.equal(await verifyGateway(new Request('https://service.test'+path,{method:'POST',headers:{'x-aa-envelope':stale,'x-aa-signature':await signEnvelope(key,stale)},body}),key,'https://portfolio.test'),null);
 });
 test('gateway strips client identity/signature headers and forwards only signed platform identity',async()=>{
-  const r=new Request('https://portfolio.test/ai/audio-archive/api/settings',{headers:{'oai-authenticated-user-id':'real-platform-user','x-aa-envelope':'fake','x-aa-signature':'fake','x-other-secret':'do-not-forward'}});
+  const r=new Request('https://portfolio.test/plugin-archive/api/settings',{headers:{'oai-authenticated-user-id':'real-platform-user','x-aa-envelope':'fake','x-aa-signature':'fake','x-other-secret':'do-not-forward'}});
   const response=await forwardToApplication(r,{GATEWAY_KEY:key,AUDIO_APP_ORIGIN:'https://service.test'},async(url,opts)=>{assert.equal(opts.headers.get('x-other-secret'),null);assert.equal(opts.headers.get('oai-authenticated-user-id'),null);const verified=await verifyGateway(new Request(url,opts),key,'https://portfolio.test');assert.equal(verified.user,'real-platform-user');return new Response('ok');});assert.equal(await response.text(),'ok');
 });

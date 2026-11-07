@@ -1,6 +1,6 @@
 # 效果器档案室
 
-在线入口：https://huangyd.is-a.dev/ai/audio-archive/
+在线入口：https://huangyd.is-a.dev/plugin-archive/
 
 - `cloud/`：对客在线应用，独立发布；仅存加密配置，插件档案保存在用户飞书。
 - `local/`：本地 Python 版本源码，不包含任何个人数据或凭证。

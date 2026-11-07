@@ -3,6 +3,9 @@ import assets from './assets.generated.mjs';
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
+    if(['GET','HEAD'].includes(request.method)&&['/ai/audio-archive','/ai/audio-archive/'].includes(url.pathname)){
+      return Response.redirect(url.origin+PREFIX+'/'+url.search,308);
+    }
     if(url.pathname===PREFIX)return Response.redirect(url.origin+PREFIX+'/'+url.search,308);
     if(url.pathname.startsWith(PREFIX+'/'))return forwardToApplication(request,env);
     if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
