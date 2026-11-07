@@ -17,9 +17,10 @@ export async function analyze(config,input) {
   if(!['batch','final'].includes(input.phase))throw new AppError('分析阶段无效。');
   if(input.phase==='batch'){
     if(!Array.isArray(input.pages)||input.pages.length<1||input.pages.length>4)throw new AppError('每批支持 1–4 页。');
-    const content=[text('阅读这批手册页面并完整提取事实。只返回 JSON {facts: 含页码的事实和音源适用原句数组, interface_candidates: 可能有完整插件界面的 page-N ID 数组, warnings: 信息缺口数组}，不要提前输出最终档案。')];
+    const content=[text('以下是说明书的本批页面。请按分批取证要求返回 JSON。')];
     for(const p of input.pages){if(!Number.isInteger(p.number)||p.number<1||p.number>80||typeof p.text!=='string'||p.text.length>50000||!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(p.image||'')||p.image.length>2200000)throw new AppError('页面数据不正确或图像过大。');content.push(text({page:p.number,text:p.text,links:p.links,id:'page-'+p.number}),image(p.image));}
-    return {note:parseModel(await complete(config,[{role:'system',content:onlinePrompt},{role:'user',content}]))};
+    const batchPrompt = onlinePrompt + '\n\n当前阶段：分批取证';
+    return {note:parseModel(await complete(config,[{role:'system',content:batchPrompt},{role:'user',content}]))};
   }
   if(!Array.isArray(input.notes)||input.notes.length>80||JSON.stringify(input.notes).length>700000||!Array.isArray(input.pages)||input.pages.length>80||!Array.isArray(input.candidates)||input.candidates.length>6)throw new AppError('汇总内容超过限制。');
   const content=[text({instruction:'汇总全部笔记，输出完整档案 JSON，字段：名称、类属、风格场景、官网链接、详细说明、界面图、筛选标签（厂商/适用音源/音源依据）、evidence、caveats。不得增加字段。',notes:input.notes,allowed_image_ids:input.candidates.map(p=>p.id)})];
