@@ -61,6 +61,9 @@ export default defineConfig(async ({ command }) => {
         inspectorPort: false,
         config: {
           ...localBindingConfig,
+          vars: {
+            PUBLIC_ORIGIN: "https://huangyd.is-a.dev",
+          },
           ...(command === "serve"
             ? {
                 services: [
