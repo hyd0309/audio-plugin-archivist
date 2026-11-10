@@ -4,130 +4,18 @@ import { sha, b64, unb64 } from './security.mjs';
 export const PREFIX='/plugin-archive';
 async function key(secret,usage){if(!secret||unb64(secret).length!==32)throw new Error('gateway_unconfigured');return crypto.subtle.importKey('raw',unb64(secret),{name:'HMAC',hash:'SHA-256'},false,[usage]);}
 export async function signEnvelope(secret,envelope){return b64(new Uint8Array(await crypto.subtle.sign('HMAC',await key(secret,'sign'),new TextEncoder().encode(envelope))));}
-
-export async function verifyGateway(request, secret, origin) {
-  let stage = "start";
-
-  // 只记录失败阶段和非敏感诊断信息
-  function reject(reason, details = {}) {
-    console.warn("[gateway] verification rejected:", {
-      stage,
-      reason,
-      ...details
-    });
-    return null;
-  }
-
-  try {
-    stage = "read_headers";
-
-    const raw = request.headers.get("x-aa-envelope") || "";
-    const signature = request.headers.get("x-aa-signature") || "";
-
-    if (raw.length > 8000 || signature.length > 100) {
-      return reject("header_too_large");
-    }
-
-    stage = "verify_hmac";
-
-    const gatewayKey = await key(secret, "verify");
-    const signatureBytes = unb64(signature);
-
-    const valid = await crypto.subtle.verify(
-      "HMAC",
-      gatewayKey,
-      signatureBytes,
-      new TextEncoder().encode(raw)
-    );
-
-    if (!valid) {
-      return reject("hmac_mismatch");
-    }
-
-    stage = "parse_envelope";
-
-    const e = JSON.parse(raw);
-    const url = new URL(e.url);
-
-    stage = "check_timestamp";
-
-    const ageMs = Math.abs(Date.now() - e.at);
-
-    if (ageMs > 30000) {
-      return reject("timestamp_out_of_window", {
-        ageMs: Number.isFinite(ageMs) ? ageMs : null
-      });
-    }
-
-    stage = "check_origin";
-
-    if (url.origin !== origin) {
-      return reject("public_origin_mismatch", {
-        originMatches: false
-      });
-    }
-
-    stage = "check_path_prefix";
-
-    if (!url.pathname.startsWith(PREFIX + "/")) {
-      return reject("invalid_path_prefix");
-    }
-
-    stage = "check_method";
-
-    if (e.method !== request.method) {
-      return reject("method_mismatch");
-    }
-
-    const requestUrl = new URL(request.url);
-
-    stage = "check_request_path";
-
-    if (requestUrl.pathname !== url.pathname) {
-      return reject("request_path_mismatch");
-    }
-
-    stage = "check_request_query";
-
-    if (requestUrl.search !== url.search) {
-      return reject("request_query_mismatch");
-    }
-
-    stage = "check_envelope_fields";
-
-    if (
-      typeof e.user !== "string" ||
-      e.user.length > 500 ||
-      typeof e.origin !== "string" ||
-      e.origin.length > 500
-    ) {
-      return reject("invalid_envelope_fields");
-    }
-
-    stage = "check_body_hash";
-
-    const actualHash = await sha(
-      await request.clone().arrayBuffer()
-    );
-
-    if (e.hash !== actualHash) {
-      return reject("body_hash_mismatch");
-    }
-
-    console.log("[gateway] verification passed");
-
+export async function verifyGateway(request,secret,origin){
+  try{
+    const raw=request.headers.get('x-aa-envelope')||'',signature=request.headers.get('x-aa-signature')||'';
+    if(raw.length>8000||signature.length>100)return null;
+    if(!await crypto.subtle.verify('HMAC',await key(secret,'verify'),unb64(signature),new TextEncoder().encode(raw)))return null;
+    const e=JSON.parse(raw),url=new URL(e.url);
+    if(Math.abs(Date.now()-e.at)>30000||url.origin!==origin||!url.pathname.startsWith(PREFIX+'/')||e.method!==request.method||new URL(request.url).pathname!==url.pathname||new URL(request.url).search!==url.search)return null;
+    if(typeof e.user!=='string'||e.user.length>500||typeof e.origin!=='string'||e.origin.length>500)return null;
+    if(e.hash!==await sha(await request.clone().arrayBuffer()))return null;
     return e;
-
-  } catch (error) {
-    console.error("[gateway] verification error:", {
-      stage,
-      errorType: error?.name || "UnknownError"
-    });
-
-    return null;
-  }
+  } catch{return null;}
 }
-
 export async function forwardToApplication(request,env,fetcher=fetch){
   const url=new URL(request.url);if(!url.pathname.startsWith(PREFIX+'/'))return new Response('Not found',{status:404});
   if(Number(request.headers.get('content-length')||0)>12*1024*1024)return new Response('Request too large',{status:413});
