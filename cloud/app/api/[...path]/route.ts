@@ -4,14 +4,25 @@ import { Feishu, SCOPES } from '../../../lib/feishu.mjs';
 import { provision, syncArchive, knowledge } from '../../../lib/archive-service.mjs';
 import { analyze, recommend } from '../../../lib/model.mjs';
 import { APP_PATH } from '../../../lib/paths';
+import { auth } from "../../../lib/auth";
 export const dynamic='force-dynamic';
 const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'};
 function json(value:unknown,status=200){return Response.json(value,{status,headers});}
 function cookie(request:Request,name:string){return request.headers.get('cookie')?.split(';').map(s=>s.trim()).find(s=>s.startsWith(name+'='))?.slice(name.length+1)||'';}
 async function handle(request:Request) {
-  const url=new URL(request.url),path=url.pathname.replace(APP_PATH,'').slice(5);
-  if(path==='health'&&request.method==='GET')return json({ok:true,storage:'configuration-only'});
-  try{
+  const url = new URL(request.url);
+  const path = url.pathname.replace(APP_PATH, "").slice(5);
+
+  // Better Auth 独立处理认证请求，不进入原有 ownerFor / guard 业务逻辑。
+  if (path === "auth" || path.startsWith("auth/")) {
+    return auth.handler(request);
+  }
+
+  if (path === "health" && request.method === "GET") {
+    return json({ ok: true, storage: "configuration-only" });
+  }
+
+  try {
     const owner=await ownerFor(request);
     if(request.method!=='GET')verifyOrigin(request);
     if(path==='settings'&&request.method==='GET')return json(publicSettings(await readVault(owner)));
